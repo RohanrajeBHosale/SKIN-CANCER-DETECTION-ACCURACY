@@ -1,0 +1,321 @@
+```{r}
+# Install and load necessary packages
+if (!require("jpeg")) install.packages("jpeg", repos = "http://cran.r-project.org")
+if (!require("abind")) install.packages("abind", repos = "http://cran.r-project.org")
+
+library(jpeg)
+library(abind)
+library(caret)
+library(glmnet)
+```
+
+
+```{r}
+# Function to read images and convert them to an array
+read_images <- function(directory) {
+  # List all JPEG files in the directory
+  files <- list.files(directory, pattern = "\\.jpg$", full.names = TRUE)
+  images <- lapply(files, function(file) {
+    img <- readJPEG(file)
+    array(as.vector(img), dim = c(dim(img)[1], dim(img)[2], dim(img)[3]))
+  })
+  # Convert list of matrices to an array
+  do.call(abind, c(images, list(along = 4)))
+}
+```
+
+
+```{r}
+# Paths to image folders
+folder_benign_train <- 'C:/Users/Piyush/OneDrive/Documents/projec/benign_train'
+folder_malignant_train <- 'C:/Users/Piyush/OneDrive/Documents/projec/malign_train'
+folder_benign_test <- 'C:/Users/Piyush/OneDrive/Documents/projec/benign_test'
+folder_malignant_test <- 'C:/Users/Piyush/OneDrive/Documents/projec/malign_test'
+
+# Load images
+X_benign <- read_images(folder_benign_train)
+X_malignant <- read_images(folder_malignant_train)
+X_benign_test <- read_images(folder_benign_test)
+X_malignant_test <- read_images(folder_malignant_test)
+
+# Create labels
+y_benign <- rep(0, dim(X_benign)[4])
+y_malignant <- rep(1, dim(X_malignant)[4])
+y_benign_test <- rep(0, dim(X_benign_test)[4])
+y_malignant_test <- rep(1, dim(X_malignant_test)[4])
+
+# Merge data
+X_train <- abind(X_benign, X_malignant, along = 4)
+y_train <- c(y_benign, y_malignant)
+X_test <- abind(X_benign_test, X_malignant_test, along = 4)
+y_test <- c(y_benign_test, y_malignant_test)
+
+# Shuffle data
+set.seed(530)  # for reproducibility
+shuffle_train <- sample(length(y_train))
+X_train <- X_train[,,, shuffle_train]
+y_train <- y_train[shuffle_train]
+
+shuffle_test <- sample(length(y_test))
+X_test <- X_test[,,, shuffle_test]
+y_test <- y_test[shuffle_test]
+
+# Print first few rows of the shuffled data for verification
+print(head(y_train))
+print(head(y_test))
+print(head(X_train))
+
+```
+
+```{r}
+#install.packages("imager")
+library(imager)
+
+flatten_images <- function(images) {
+  array_dim <- dim(images)
+  array(as.vector(images), dim = c(array_dim[1] * array_dim[2] * array_dim[3], array_dim[4]))
+}
+
+# Assuming all previous steps are included above, starting from loading images to shuffling data
+X_train_flat <- flatten_images(X_train)
+X_test_flat <- flatten_images(X_test)
+
+
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+# Check dimensions
+print(length(y_train))
+print(dim(X_train_flat))  # This will show NULL if X_train_flat is not a matrix
+
+# Example of reshaping if X_train_flat was supposed to be a matrix but isn't
+if (is.null(dim(X_train_flat))) {
+  # Assuming you know the number of features each sample should have
+  num_features <- 100  # change this to the correct number of features
+  X_train_flat <- matrix(X_train_flat, nrow = length(y_train), ncol = num_features, byrow = TRUE)
+}
+
+# Check dimensions again
+print(dim(X_train_flat))
+
+
+```
+
+```{r}
+# Calculate number of features per sample
+num_features <- length(X_train_flat) / length(y_train)
+
+# Reshape X_train_flat into a matrix
+X_train_flat_matrix <- matrix(X_train_flat, nrow = length(y_train), ncol = num_features, byrow = TRUE)
+
+
+```
+
+
+```{r}
+
+# Assign column names to X_train_flat_matrix
+colnames(X_train_flat_matrix) <- paste0("V", 1:ncol(X_train_flat_matrix))
+# Reduce dimensionality with PCA
+preProc <- preProcess(X_train_flat_matrix, method = "pca", pcaComp = 50)  # Retain top 50 principal components
+X_train_pca <- predict(preProc, X_train_flat_matrix)
+
+# Set up training control with a progress bar
+train_control <- trainControl(method = "none", allowParallel = TRUE)
+
+# Fit the model using caret for easier handling
+logistic_model <- train(x = X_train_pca, y = y_train, method = "glm", family = "binomial", trControl = train_control)
+
+
+
+```
+
+```{r}
+library(caret)
+
+# Assign column names to X_train_flat_matrix
+colnames(X_train_flat_matrix) <- paste0("Feature_", 1:ncol(X_train_flat_matrix))
+
+# Apply PCA using preProcess
+# Note: We will use a smaller number of principal components for efficiency in this example.
+preProc <- preProcess(X_train_flat_matrix, method = "pca", pcaComp = 50)
+X_train_pca <- predict(preProc, X_train_flat_matrix)
+
+# Debug: Check the output
+print(dim(X_train_pca))
+
+
+```
+
+
+
+```{r}
+# Assuming you have X_test_flat defined and num_features already known
+num_features <- 150528  # This should match the number used when creating X_train_flat_matrix
+
+# Number of test samples (assuming X_test_flat is correctly sized)
+num_samples_test <- length(X_test_flat) / num_features
+
+# Reshape X_test_flat to a matrix
+X_test_flat_matrix <- matrix(X_test_flat, nrow = num_samples_test, ncol = num_features, byrow = TRUE)
+
+# Optionally, assign column names as per your training data
+colnames(X_test_flat_matrix) <- paste0("Feature_", 1:num_features)
+
+
+```
+
+
+```{r}
+# Transform the test data using the same PCA model used on the training data
+X_test_pca <- predict(preProc, X_test_flat_matrix)
+# Make predictions on the PCA-transformed test data
+logistic_predictions <- predict(logistic_model, newdata = as.data.frame(X_test_pca), type = "raw")
+logistic_predicted_classes <- ifelse(logistic_predictions > 0.5, 1, 0)
+# Calculate accuracy
+logistic_accuracy <- mean(logistic_predicted_classes == y_test)
+print(paste("Logistic Regression Accuracy:", logistic_accuracy))
+
+
+```
+
+
+
+
+```{r}
+
+confusionMatrix(as.factor(logistic_predicted_classes), as.factor(y_test))
+
+```
+
+
+```{r}
+library(randomForest)
+# Train the Random Forest model
+rf_model <- randomForest(x = as.data.frame(X_train_pca), y = as.factor(y_train), ntree = 500, mtry = 7, importance = TRUE)
+
+# Print model summary
+print(rf_model)
+
+
+```
+
+```{r}
+# Make predictions
+rf_predictions <- predict(rf_model, newdata = as.data.frame(X_test_pca))
+
+# Calculate accuracy
+rf_accuracy <- mean(rf_predictions == y_test)
+print(paste("Random Forest Accuracy:", rf_accuracy))
+
+
+```
+
+```{r}
+# Plot variable importance
+varImpPlot(rf_model)
+```
+
+
+```{r}
+library(caret)
+set.seed(530)  # For reproducibility
+
+# Define training control
+train_control <- trainControl(method = "cv", number = 10)  # 10-fold cross-validation
+
+# Train the model using cross-validation
+model_cv <- train(as.data.frame(X_train_pca), y_train, method = "rf",
+                  trControl = train_control, 
+                  tuneLength = 5,  # Tune over 5 different mtry values
+                  ntree = 100)  # Using fewer trees for faster computation during tuning
+
+# Print out the results
+print(model_cv)
+
+```
+
+```{r}
+table(y_train)
+table(y_test)
+
+```
+
+
+
+
+```{r}
+library(e1071)
+
+# Train SVM model
+svm_model <- svm(as.factor(y_train) ~ ., data = as.data.frame(X_train_pca), kernel = 'radial', cost = 10, scale = FALSE)
+
+# Predict using the SVM model
+svm_predictions <- predict(svm_model, newdata = as.data.frame(X_test_pca))
+
+# Evaluate accuracy
+svm_accuracy <- mean(svm_predictions == as.factor(y_test))
+print(paste("SVM Accuracy:", svm_accuracy))
+
+```
+
+```{r}
+
+library(pROC)
+# Assuming logistic_model, svm_model, and rf_model are your fitted models
+
+# Logistic Regression probabilities
+logistic_probs <- predict(logistic_model, newdata = X_test_pca, type = "raw")
+
+# SVM probabilities (assuming you used probability = TRUE in svm)
+svm_probs <- predict(svm_model, X_test_pca, probability = TRUE)
+svm_probs <- attr(svm_probs, "probabilities")[,2]  # Extract probabilities for the positive class
+
+# Random Forest probabilities
+rf_probs <- predict(rf_model, newdata = as.data.frame(X_test_pca))
+rf_probs <- rf_probs[,2]  # Assuming the second column corresponds to the positive class
+
+```
+
+
+```{r}
+# Assuming logistic_model, svm_model, and rf_model are your fitted models
+
+# Logistic Regression probabilities
+logistic_probs <- predict(logistic_model, newdata = X_test, type = "response")
+
+# SVM probabilities (assuming you used probability = TRUE in svm)
+svm_probs <- predict(svm_model, X_test_pca, probability = TRUE)
+svm_probs <- attr(svm_probs, "probabilities")[,2]  # Extract probabilities for the positive class
+
+
+```
+
+
+```{r}
+# ROC for Logistic Regression
+roc_logistic <- roc(y_test, logistic_probs)
+auc_logistic <- auc(roc_logistic)
+plot(roc_logistic, main="ROC Curves", col="red")
+
+# ROC for SVM
+roc_svm <- roc(y_test, svm_probs)
+auc_svm <- auc(roc_svm)
+plot(roc_svm, add=TRUE, col="blue")
+
+
+
+# Adding legend
+legend("bottomright", legend=c(paste("Logistic (AUC=", round(auc_logistic, 2), ")"),
+                               paste("SVM (AUC=", round(auc_svm, 2), ")"),),
+       col=c("red", "blue", "green"), lwd=2)
+
+```
+
